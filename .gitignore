@@ -1,0 +1,8 @@
+﻿################################################################################
+# Ten plik .gitignore został utworzony automatycznie przez Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+/CassieRoom/obj/Debug
+/CassieRoom/bin/Debug
+/packages/StyleCop.Analyzers.1.1.118
