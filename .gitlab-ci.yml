@@ -1,0 +1,117 @@
+stages:
+  - build
+  - test
+  - publish
+
+variables:
+  typ:
+    value: build
+    description: "Pipeline type. Valid options are: 'build', 'test' or 'release'."
+  wersja:
+    value: 1.0.0
+    description: "Version"
+
+
+build-plugins:
+  stage: build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'push'
+      when: always
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $typ == 'build'
+    - if: $typ == 'test'
+  tags:
+    - Windows
+  script:
+    - git clone https://oauth2:$GIT_KEY@git.mistaken.pl/scp-sl/dependencies.git
+    - 'nuget restore'
+    - $origdeps = $env:MISTAKEN_REFERENCES
+    - $env:MISTAKEN_REFERENCES = (Get-Item .).FullName + "\dependencies"
+    - 'msbuild $CI_PROJECT_NAME.sln /p:ReferencePath="$env:MISTAKEN_REFERENCES" /p:CompanyName=Mistaken /p:OutputPath="build"'
+    - $env:MISTAKEN_REFERENCES = $origdeps
+  artifacts:
+    paths:
+      - $CI_PROJECT_NAME\build\$DLL_NAME
+
+test-plugins:
+  needs: [build-plugins]
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+    - if: $typ == 'test'
+  stage: test
+  tags:
+   - Linux
+  dependencies:
+   - build-plugins
+  script:
+    - ls -la
+    - 'curl -o "CI Tester" -H "PRIVATE-TOKEN: $API_KEY" "https://git.mistaken.pl/api/v4/projects/Barwa%2FCI-Tools/jobs/artifacts/main/raw/build/CI%20Tester?job=build-code-job"'
+    - /home/barwa/unzip_gitlab.sh
+  
+build-plugins-publish:
+  stage: build
+  rules:
+    - if: $typ == 'release'
+  tags:
+    - Windows
+  script:
+    - git clone https://oauth2:$GIT_KEY@git.mistaken.pl/scp-sl/dependencies.git
+    - 'nuget restore'
+    - $origdeps = $env:MISTAKEN_REFERENCES
+    - $env:MISTAKEN_REFERENCES = (Get-Item .).FullName + "\dependencies"
+    - '.\dependencies\version.ps1'
+    - 'msbuild $CI_PROJECT_NAME.sln /p:ReferencePath="$env:MISTAKEN_REFERENCES" /p:CompanyName=Mistaken /p:OutputPath="build" /p:Version=$wersja'
+    - $env:MISTAKEN_REFERENCES = $origdeps
+  artifacts:
+    paths:
+      - $CI_PROJECT_NAME\build\$DLL_NAME
+
+test-plugins-publish:
+  needs: [build-plugins-publish]
+  rules:
+    - if: $typ == 'release'
+  stage: test
+  tags:
+   - Linux
+  dependencies:
+    - build-plugins-publish
+  script:
+    - ls -la
+    - 'curl -o "CI Tester" -H "PRIVATE-TOKEN: $API_KEY" "https://git.mistaken.pl/api/v4/projects/Barwa%2FCI-Tools/jobs/artifacts/main/raw/build/CI%20Tester?job=build-code-job"'
+    - /home/barwa/unzip_gitlab.sh
+  
+publish-plugins:
+  needs: [build-plugins-publish, test-plugins-publish]
+  rules:
+    - if: $typ == 'release'
+  stage: publish
+  tags:
+    - Windows
+  dependencies:
+    - build-plugins-publish
+  script:
+    - 'curl -InFile "$CI_PROJECT_NAME\build\$DLL_NAME" -Method "Put" -H @{"PRIVATE-TOKEN"= "$API_KEY"} "https://git.mistaken.pl/api/v4/projects/scp-sl%2F$CI_PROJECT_NAME/packages/generic/plugins/$wersja/$DLL_NAME" -UseBasicParsing'
+    - $env:asset = "{`"name`":`"$DLL_NAME`",`"url`":`"https://git.mistaken.pl/api/v4/projects/scp-sl%2F$CI_PROJECT_NAME/packages/generic/plugins/$wersja/$DLL_NAME`"}"
+    - $env:assetjson = $env:asset | ConvertTo-Json
+    - C:\GitLab\Release-CLI\bin\release-cli create --name $wersja --description "Release $wersja" --tag-name $wersja --assets-link=$env:assetjson
+    - git clone https://oauth2:$GIT_KEY@git.mistaken.pl/scp-sl/dependencies.git
+    - cd dependencies
+    - cp ..\$CI_PROJECT_NAME\build\$DLL_NAME $DLL_NAME
+    - git config commit.gpgsign false
+    - git config user.email "ci@git.mistaken.pl"
+    - git config user.name "Gitlab-CI"
+    - git add $DLL_NAME
+    - git commit -m "Update $DLL_NAME"
+    - git push
+    - cd ..
+    - rm -r -force dependencies
+    - git remote set-url origin https://oauth2:$GIT_KEY@git.mistaken.pl/scp-sl/$CI_PROJECT_NAME.git
+    - git config commit.gpgsign false
+    - git config user.email "ci@git.mistaken.pl"
+    - git config user.name "Gitlab-CI"
+    - git checkout master
+    - git pull
+    - echo $wersja > version
+    - git add version
+    - git commit -m "[ci skip] bump version"
+    - git push origin master
