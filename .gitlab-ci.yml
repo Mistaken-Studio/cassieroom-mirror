@@ -27,6 +27,8 @@ build-plugins:
     - 'nuget restore'
     - $origdeps = $env:MISTAKEN_REFERENCES
     - $env:MISTAKEN_REFERENCES = (Get-Item .).FullName + "\dependencies"
+    - $wersja = Get-Content .\version -Raw
+    - '.\dependencies\version.ps1'
     - 'msbuild $CI_PROJECT_NAME.sln /p:ReferencePath="$env:MISTAKEN_REFERENCES" /p:CompanyName=Mistaken /p:OutputPath="build"'
     - $env:MISTAKEN_REFERENCES = $origdeps
   artifacts:
@@ -110,6 +112,8 @@ publish-plugins:
     - git config user.email "ci@git.mistaken.pl"
     - git config user.name "Gitlab-CI"
     - git checkout master
+    - git reset --hard origin/master
+    - git clean -fxd
     - git pull
     - echo $wersja > version
     - git add version
